@@ -6,6 +6,7 @@ const fs = require('fs')
 const glob = require('glob') // npm i glob -D
 const download = require('../lib/download')
 const copy = require('../lib/copy')
+const deleteFolder = require('../lib/del')
 program.usage('<project-name>').parse(process.argv)
 
 // 根据输入，获取项目名称
@@ -39,6 +40,12 @@ go()
 
 function go () {
   download(rootName)
-    .then(target => copy(target, path.join(target, '..')))
+    .then(async (target) => {
+      const res = await copy(target, path.join(target, '..'))
+      if (res) {
+        deleteFolder(path.join(target))
+        console.log(`项目${projectName}构建成功`)
+      }
+    })
     .catch(err => console.log(err))
 }
