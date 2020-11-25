@@ -7,6 +7,12 @@ const glob = require('glob') // npm i glob -D
 const download = require('../lib/download')
 const copy = require('../lib/copy')
 const deleteFolder = require('../lib/del')
+const inquirer = require('inquirer')
+const list = glob.sync('*')  // 遍历当前目录
+// 这个模块可以获取node包的最新版本
+const latestVersion = require('latest-version')
+const generator = require('../lib/generator')
+
 program.usage('<project-name>').parse(process.argv)
 
 // 根据输入，获取项目名称
@@ -18,8 +24,8 @@ if (!projectName) {  // project-name 必填
   return
 }
 
-const list = glob.sync('*')  // 遍历当前目录
 let rootName = path.basename(process.cwd())
+let next = undefined
 if (list.length) {  // 如果当前目录不为空
   if (list.filter(name => {
       const fileName = path.resolve(process.cwd(), path.join('.', name))
@@ -29,23 +35,82 @@ if (list.length) {  // 如果当前目录不为空
     console.log(`项目${projectName}已经存在`)
     return
   }
-  rootName = projectName
+  next = Promise.resolve(projectName)
 } else if (rootName === projectName) {
-    rootName = '.'
+  next = inquirer.prompt([
+    {
+      name: 'buildInCurrent',
+      message: '当前目录为空，且目录名称和项目名称相同，是否直接在当前目录下创建新项目？',
+      type: 'confirm',
+      default: true
+    }
+  ]).then(answer => {
+    return Promise.resolve(answer.buildInCurrent ? '.' : projectName)
+  })
 } else {
-    rootName = projectName
+  next = Promise.resolve(projectName)
 }
 
-go()
+next && go()
 
 function go () {
-  download(rootName)
-    .then(async (target) => {
-      const res = await copy(target, path.join(target, '..'))
-      if (res) {
-        deleteFolder(path.join(target))
-        console.log(`项目${projectName}构建成功`)
+  next.then(projectRoot => {
+    if (projectRoot !== '.') {
+      fs.mkdirSync(projectRoot)
+    }
+    return download(projectRoot).then(target => {
+      return {
+        name: projectRoot,
+        root: projectRoot,
+        downloadTemp: target
       }
     })
-    .catch(err => console.log(err))
+  }).then((context) => {
+    return inquirer.prompt([
+      {
+        name: 'projectName',
+        message: '项目的名称',
+        default: context.name
+      },
+      {
+        name: 'projectVersion',
+        message: '项目的版本号',
+        default: '1.0.0'
+      },
+      {
+        name: 'projectDescription',
+        message: '项目的简介',
+        default: `A project named ${context.name}`
+      }
+    ]).then(answers => {
+      return latestVersion('element-ui').then(version => {
+        answers.supportUiVersion = version
+        return {
+          ...context,
+          metadata: {
+            ...answers
+          }
+        }
+      })
+    })
+  }).then(context => {
+    // 添加生成的逻辑
+    return generator(context.metadata, context.root)
+  }).then(context => {
+    console.log('创建成功:)')
+  }).catch(err => {
+    console.error(`创建失败：${err.message}`)
+  })
 }
+
+// function go () {
+//   download(rootName)
+//     .then(async (target) => {
+//       const res = await copy(target, path.join(target, '..'))
+//       if (res) {
+//         deleteFolder(path.join(target))
+//         console.log(`项目${projectName}构建成功`)
+//       }
+//     })
+//     .catch(err => console.log(err))
+// }
